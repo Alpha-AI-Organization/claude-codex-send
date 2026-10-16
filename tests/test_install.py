@@ -105,6 +105,33 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(sum(line.startswith("unchanged ") for line in p.stdout.splitlines()), 3)
         self.assertEqual(snapshot(self.root), before)
 
+    def test_same_size_and_mtime_with_different_content_is_a_conflict(self):
+        self.install()
+        source = SKILLS / "claude-send/claude_post.py"
+        dest = self.homes["codex"] / "skills/claude-send/claude_post.py"
+        content, info = source.read_bytes(), source.stat()
+        dest.write_bytes(bytes([content[0] ^ 1]) + content[1:])
+        os.utime(dest, ns=(info.st_atime_ns, info.st_mtime_ns))
+        self.assertEqual(dest.stat().st_size, info.st_size)
+        self.assertEqual(dest.stat().st_mtime_ns, info.st_mtime_ns)
+        before = snapshot(self.root)
+        p = self.run_install()
+        self.assertEqual(p.returncode, 3, p.stderr)
+        self.assertIn("use --force to replace", p.stderr)
+        self.assertIn(str(dest.parent), p.stderr)
+        self.assertEqual(snapshot(self.root), before)
+
+    def test_installed_cache_is_ignored(self):
+        self.install()
+        cache = self.homes["claude"] / "skills/codex-send/__pycache__"
+        cache.mkdir()
+        (cache / "local.pyc").write_bytes(b"cache")
+        before = snapshot(self.root)
+        p = self.run_install()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(sum(line.startswith("unchanged ") for line in p.stdout.splitlines()), 3)
+        self.assertEqual(snapshot(self.root), before)
+
     def test_conflict_preflight_covers_both_tools_and_force_replaces(self):
         self.install()
         changed = self.homes["codex"] / "skills/claude-send/claude_post.py"
@@ -189,6 +216,49 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(snapshot(SKILLS), before)
         for home in self.homes.values():
             self.assertEqual(list((home / "skills").iterdir()), [])
+
+    def check_linked_install(self, link, target, directory):
+        self.symlink(link, target)
+        for action in ("installed ", "unchanged "):
+            p = self.run_install("--only", "claude")
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertEqual(sum(line.startswith(action) for line in p.stdout.splitlines()), 2)
+            self.assertIn("claude skills: %s" % directory, p.stdout)
+            self.assertEqual({p.name for p in directory.iterdir()}, set(MAPPING["claude"]))
+            for name in MAPPING["claude"]:
+                self.assertEqual(source_files(directory / name), source_files(SKILLS / name))
+        p = self.run_install("--only", "claude", "--uninstall")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(sum(line.startswith("removed ") for line in p.stdout.splitlines()), 2)
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(link.resolve(), target)
+        self.assertEqual(list(directory.iterdir()), [])
+
+    def test_symlinked_home_installs_and_uninstalls_in_real_directory(self):
+        target = self.root / "real-home"
+        target.mkdir()
+        self.check_linked_install(self.homes["claude"], target, target / "skills")
+
+    def test_symlinked_skills_installs_and_uninstalls_in_real_directory(self):
+        target = self.root / "real-skills"
+        target.mkdir()
+        self.homes["claude"].mkdir()
+        self.check_linked_install(self.homes["claude"] / "skills", target, target)
+
+    def test_file_instead_of_directory_is_a_clean_error(self):
+        home = self.homes["claude"]
+        for path in (home, home / "skills"):
+            with self.subTest(path=path):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"not a directory")
+                before = snapshot(self.root)
+                p = self.run_install("--only", "claude")
+                self.assertEqual(p.returncode, 1, p.stderr)
+                self.assertEqual(len(p.stderr.splitlines()), 1)
+                self.assertTrue(p.stderr.startswith("error: "))
+                self.assertNotIn("Traceback", p.stderr)
+                self.assertEqual(snapshot(self.root), before)
+                path.unlink()
 
     def test_unknown_option(self):
         p = self.run_install("--unknown")

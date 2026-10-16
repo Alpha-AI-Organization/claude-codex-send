@@ -7,7 +7,7 @@ Codex: claude-send -> <CODEX_HOME or ~/.codex>/skills/
 
 Exit statuses: 0 = success; 1 = error; 2 = usage error; 3 = conflict without --force.
 """
-import argparse, os, shutil, stat, sys
+import argparse, filecmp, os, shutil, stat, sys
 from pathlib import Path
 
 TOOLS = {"claude": ("CLAUDE_CONFIG_DIR", ".claude", ("codex-send", "claude-receive")),
@@ -25,23 +25,17 @@ def linked(path):
                                              getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
 
 
-def files(root):
-    if linked(root) or not root.is_dir():
-        return None
-    found, pending = {}, [root]
-    while pending:
-        for path in pending.pop().iterdir():
-            if path.name in IGNORE(str(path.parent), [path.name]):
-                continue
-            if linked(path):
-                return None
-            if path.is_dir():
-                pending.append(path)
-            elif path.is_file():
-                found[path.relative_to(root)] = path.read_bytes()
-            else:
-                return None
-    return found
+def same(dest, source):
+    if linked(dest) or not dest.is_dir():
+        return False
+    cmp = filecmp.dircmp(dest, source, ignore=filecmp.DEFAULT_IGNORES +
+                        list(IGNORE("", os.listdir(dest) + os.listdir(source))))
+    if any(linked(root / name) for root, names in ((dest, cmp.left_list), (source, cmp.right_list))
+           for name in names):
+        return False
+    return not (cmp.left_only or cmp.right_only or cmp.common_funny or cmp.funny_files or
+                any(filecmp.cmpfiles(dest, source, cmp.common_files, shallow=False)[1:])) and all(
+        same(Path(sub.left), Path(sub.right)) for sub in cmp.subdirs.values())
 
 
 def links_to(dest, source):
@@ -89,36 +83,24 @@ def main(argv=None):
                  for tool in selected}
         directories = {tool: home / "skills" for tool, home in homes.items()}
         base = Path(__file__).resolve().parent / "skills"
-        if linked(base):
-            raise ValueError("source skills directory must not be a link: %s" % base)
         sources = {}
         for tool in selected:
             for name in TOOLS[tool][2]:
-                source = base / name
-                if not source.is_dir() or linked(source):
+                source = (base / name).resolve()
+                if not source.is_dir():
                     raise ValueError("source folder missing or not a regular directory: %s" % source)
-                contents = files(source)
-                if contents is None:
-                    raise ValueError("source contains links or unsupported files: %s" % source)
-                sources[name] = (source, contents)
+                sources[name] = source
 
         actions, conflicts = [], []
         for tool, home in homes.items():
-            if linked(home) or linked(home / "skills"):
-                raise ValueError("tool home and skills directory must not be links: %s" % home)
             if not home.exists() and not a.only:
                 print("skipped %s: %s does not exist (use --only %s to create it)" % (tool, home, tool))
                 continue
-            if home.exists() and not home.is_dir():
-                raise ValueError("tool home is not a directory: %s" % home)
             directory = directories[tool] = (home / "skills").resolve()
-            if directory.exists() and not directory.is_dir():
-                raise ValueError("skills path is not a directory: %s" % directory)
             for name in TOOLS[tool][2]:
-                source, contents = sources[name]
+                source = sources[name]
                 dest = directory / name
-                check_parent(dest, directory)
-                if any(dest == src or dest in src.parents or src in dest.parents for src, _ in sources.values()):
+                if any(dest == src or dest in src.parents or src in dest.parents for src in sources.values()):
                     raise ValueError("destination overlaps a source folder: %s" % dest)
                 exists = os.path.lexists(dest)
                 if a.uninstall:
@@ -126,7 +108,7 @@ def main(argv=None):
                 elif not exists:
                     action = "install"
                 elif (a.link and dest.is_symlink() and links_to(dest, source)) or (
-                        not a.link and files(dest) == contents):
+                        not a.link and same(dest, source)):
                     action = "unchanged"
                 else:
                     action = "replace"
@@ -145,12 +127,10 @@ def main(argv=None):
             if a.dry_run:
                 print("would %s %s" % (action, dest))
                 continue
-            check_parent(dest, directory)
             if action in ("remove", "replace"):
                 remove(dest, directory)
             if action != "remove":
                 directory.mkdir(parents=True, exist_ok=True)
-                check_parent(dest, directory)
                 if a.link:
                     try:
                         dest.symlink_to(source, target_is_directory=True)
