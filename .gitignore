@@ -1,0 +1,4 @@
+.agent-mailbox/
+__pycache__/
+*.pyc
+*.tmp
