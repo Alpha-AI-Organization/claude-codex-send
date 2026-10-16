@@ -16,8 +16,10 @@ python codex_ctl.py send <thread_id> @message.txt --wait 120
 ```
 
 - `list` prints `thread_id | status | name | cwd` for every loaded thread. Names come from each thread's first prompt, so confirm which thread is which with the user before sending.
-- `send` refuses unless the thread is `idle`, so it never interrupts work in progress. It waits for the thread to finish and prints `REPLY: ...`. If nothing arrives in time, the thread may still be working.
-- Use `@file` for anything long or with quotes; shells can split arguments.
+- `send` refuses unless the thread is `idle`, so it never interrupts work in progress. It waits for the thread to finish and prints `REPLY: ...`. Only turns started after your message count, so an old reply is never shown as the answer.
+- Use `@file` for anything long or with quotes (read as UTF-8); `-` reads stdin. A message is capped at 8000 characters; for a longer brief, save it to a file and send a short message that points to it.
+
+Exit status of `send`: 0 reply printed, 2 usage error, 3 thread not idle (nothing sent), 4 sent (or possibly sent) but no reply in time, `turn/start` did not complete, or the thread finished without an agent message, 5 connection, protocol, server-refused or unknown-thread error. After a 4 the message may have been delivered and the thread may still be working; check its window before sending again.
 
 ## Rules
 
@@ -29,4 +31,4 @@ python codex_ctl.py send <thread_id> @message.txt --wait 120
 
 ## If it breaks
 
-Needs `codex` on PATH (or `CODEX_BIN`) and a running Codex session. `codex app-server generate-json-schema --out <dir>` shows the protocol of your installed version. See the repository README for how it works and what was tested.
+Needs `codex` on PATH (or `CODEX_BIN`) and a running Codex session. The `codex` that runs the script must be the same install and `CODEX_HOME` as the sessions you want to reach: a WSL `codex` talks to a different daemon than a Windows one. `codex app-server generate-json-schema --out <dir>` shows the protocol of your installed version. See the repository README for how it works and what was tested.
