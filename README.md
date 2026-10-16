@@ -24,15 +24,54 @@ The two directions are not equal. `codex-send` is live and returns the reply. Th
 
 ## Install
 
-Copy each skill folder to where its tool loads skills:
+The two tools need different skills: Claude Code gets `codex-send` and `claude-receive`, Codex gets `claude-send`. Pick one way.
+
+### 1. Installer (recommended)
 
 ```
-cp -r skills/codex-send     ~/.claude/skills/
-cp -r skills/claude-receive ~/.claude/skills/
-cp -r skills/claude-send    ~/.codex/skills/
+git clone https://github.com/Alpha-AI-Organization/claude-codex-send
+python claude-codex-send/install.py
 ```
 
-(The Codex side can also use the instructions in `skills/claude-send/SKILL.md` pasted into `AGENTS.md`.) Use the folders as they are, or call the scripts directly.
+It copies each skill into `<CLAUDE_CONFIG_DIR or ~/.claude>/skills/` and `<CODEX_HOME or ~/.codex>/skills/`, and prints the absolute folders it used. A tool whose home folder does not exist is skipped; `--only claude` or `--only codex` installs one tool and creates its folder.
+
+| Option | Effect |
+|---|---|
+| `--dry-run` | Print what would happen, write nothing |
+| `--force` | Replace a skill folder that exists and differs. Without it the installer stops with exit status 3 and changes nothing |
+| `--link` | Link to this clone instead of copying, so `git pull` updates the skills. On Windows this needs permission to create symlinks |
+| `--uninstall` | Remove only these three skill folders |
+
+Run it with the Python of the system where the tool runs. WSL and Windows have separate homes, so a machine that uses both needs one run in each.
+
+### 2. skills CLI
+
+The third-party [skills CLI](https://github.com/vercel-labs/skills) (needs Node.js and downloads from npm) can install from the repository:
+
+```
+npx skills add Alpha-AI-Organization/claude-codex-send -g -a claude-code -s codex-send -s claude-receive
+npx skills add Alpha-AI-Organization/claude-codex-send -g -a codex -s claude-send
+```
+
+Not tested by this repository. By its documentation it puts Codex skills in `~/.agents/skills/`, not `~/.codex/skills/`, and it links by default (add `--copy` to copy). Check that your Codex reads that folder.
+
+### 3. Copy by hand
+
+Linux, macOS, WSL:
+
+```
+cp -r skills/codex-send skills/claude-receive ~/.claude/skills/
+cp -r skills/claude-send ~/.codex/skills/
+```
+
+Windows PowerShell:
+
+```
+Copy-Item -Recurse skills\codex-send, skills\claude-receive $env:USERPROFILE\.claude\skills\
+Copy-Item -Recurse skills\claude-send $env:USERPROFILE\.codex\skills\
+```
+
+The folders must already exist. The Codex side can also use the instructions in `skills/claude-send/SKILL.md` pasted into `AGENTS.md`, or you can call the scripts directly.
 
 ## Quick start
 
@@ -96,7 +135,7 @@ The suite uses a fake `codex app-server proxy` and temporary folders. It does no
 
 ## Tested
 
-Windows 11 and WSL (Ubuntu) with codex-cli 0.162.1 and Claude Code 2.1.x. The unit tests pass on Python 3.12 (WSL) and 3.13 (Windows). Against a live Codex daemon (Windows Python talking to the Windows daemon): `list`, `send` with a reply, and an unknown thread id. The mailbox was checked end to end (post, then watch, with a non-ASCII subject) on a Windows folder from WSL. macOS has not been tried. Python 3.9 is the stated minimum but has not been run. Direct injection into a running Claude Code session was not attempted because its inter-session protocol is not documented.
+Windows 11 and WSL (Ubuntu) with codex-cli 0.162.1 and Claude Code 2.1.x. The unit tests pass on Python 3.11 and 3.12 (WSL) and 3.12 and 3.13 (Windows). The installer is tested in temporary folders only; its symlink tests ran on WSL, and were skipped on Windows because creating symlinks needed extra permission. Against a live Codex daemon (Windows Python talking to the Windows daemon): `list`, `send` with a reply, and an unknown thread id. The mailbox was checked end to end (post, then watch, with a non-ASCII subject) on a Windows folder from WSL. macOS has not been tried. Python 3.9 is the stated minimum but has not been run. Direct injection into a running Claude Code session was not attempted because its inter-session protocol is not documented.
 
 ## License
 
